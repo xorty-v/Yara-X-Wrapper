@@ -28,12 +28,14 @@ public enum MatchLoadOptions
     All = Metadata | Tags | Patterns | Namespace | Identifier,
 }
 
-public sealed class YrxException : Exception
+public sealed class YaraXException : Exception
 {
-    public YrxException(string message) : base(message) { }
+    public YaraXException(string message) : base(message)
+    {
+    }
 }
 
-public sealed class YrxError
+public sealed class CompileError
 {
     [JsonPropertyName("type")]
     public string? Type { get; set; }
@@ -51,29 +53,13 @@ public sealed class YrxError
     public Dictionary<string, object?>? ExtensionData { get; set; }
 }
 
-public sealed class SlowRuleInfo
-{
-    public string Namespace { get; }
-    public string Rule { get; }
-    public double MatchTime { get; }
-    public double EvalTime { get; }
-
-    internal SlowRuleInfo(string ns, string rule, double matchTime, double evalTime)
-    {
-        Namespace = ns;
-        Rule = rule;
-        MatchTime = matchTime;
-        EvalTime = evalTime;
-    }
-}
-
 public readonly struct CompileResult
 {
     public Rules Rules { get; }
-    public IReadOnlyList<YrxError> Errors { get; }
-    public IReadOnlyList<YrxError> Warnings { get; }
+    public IReadOnlyList<CompileError> Errors { get; }
+    public IReadOnlyList<CompileError> Warnings { get; }
 
-    internal CompileResult(Rules rules, YrxError[] errors, YrxError[] warnings)
+    internal CompileResult(Rules rules, CompileError[] errors, CompileError[] warnings)
     {
         Rules = rules;
         Errors = errors;

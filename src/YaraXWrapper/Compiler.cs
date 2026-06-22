@@ -24,7 +24,7 @@ public sealed class Compiler : IDisposable
         YRX_RESULT result = YaraXNative.yrx_compiler_create((uint)flags, out _compiler);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"Failed to create compiler: {result}");
+            throw new YaraXException($"Failed to create compiler: {result}");
         }
     }
 
@@ -35,7 +35,7 @@ public sealed class Compiler : IDisposable
         string fullPath = Path.GetFullPath(filePath);
         if (!File.Exists(fullPath))
         {
-            throw new YrxException($"Rule file does not exist: {fullPath}");
+            throw new YaraXException($"Rule file does not exist: {fullPath}");
         }
 
         string directory = Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory();
@@ -43,7 +43,8 @@ public sealed class Compiler : IDisposable
         YRX_RESULT includeResult = YaraXNative.yrx_compiler_add_include_dir(_compiler, dir);
         if (includeResult != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"AddRuleFile: failed to register include directory '{directory}': {includeResult}");
+            throw new YaraXException(
+                $"AddRuleFile: failed to register include directory '{directory}': {includeResult}");
         }
 
         string source = File.ReadAllText(fullPath, Encoding.UTF8);
@@ -53,7 +54,7 @@ public sealed class Compiler : IDisposable
 
         if (result != YRX_RESULT.YRX_SUCCESS && result != YRX_RESULT.YRX_SYNTAX_ERROR)
         {
-            throw new YrxException($"AddRuleFile failed for '{fullPath}': {result}");
+            throw new YaraXException($"AddRuleFile failed for '{fullPath}': {result}");
         }
     }
 
@@ -66,17 +67,18 @@ public sealed class Compiler : IDisposable
 
         if (result != YRX_RESULT.YRX_SUCCESS && result != YRX_RESULT.YRX_SYNTAX_ERROR)
         {
-            throw new YrxException($"AddRule failed: {result}");
+            throw new YaraXException($"AddRule failed: {result}");
         }
     }
 
     public void AddIncludeDir(string directory)
     {
+        if (directory == null) throw new ArgumentNullException(nameof(directory));
         using var dir = new Utf8NativeStr(directory);
         YRX_RESULT result = YaraXNative.yrx_compiler_add_include_dir(_compiler, dir);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"AddIncludeDir failed: {result}");
+            throw new YaraXException($"AddIncludeDir failed: {result}");
         }
     }
 
@@ -86,67 +88,27 @@ public sealed class Compiler : IDisposable
         YRX_RESULT result = YaraXNative.yrx_compiler_ignore_module(_compiler, mod);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"IgnoreModule failed: {result}");
+            throw new YaraXException($"IgnoreModule failed: {result}");
         }
     }
 
-    public void BanModule(string module, string errorTitle, string errorMessage)
-    {
-        using var mod = new Utf8NativeStr(module);
-        using var title = new Utf8NativeStr(errorTitle);
-        using var msg = new Utf8NativeStr(errorMessage);
-        YRX_RESULT result = YaraXNative.yrx_compiler_ban_module(_compiler, mod, title, msg);
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"BanModule failed: {result}");
-        }
-    }
-
-    public void NewNamespace(string name)
+    public void SetNamespace(string name)
     {
         using var ns = new Utf8NativeStr(name);
         YRX_RESULT result = YaraXNative.yrx_compiler_new_namespace(_compiler, ns);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"NewNamespace failed: {result}");
-        }
-    }
-
-    public void DefineGlobal<T>(string identifier, T value)
-    {
-        using var ident = new Utf8NativeStr(identifier);
-        YRX_RESULT result = YRX_RESULT.YRX_SUCCESS;
-        switch (value)
-        {
-            case string s:
-                using (var val = new Utf8NativeStr(s))
-                    result = YaraXNative.yrx_compiler_define_global_str(_compiler, ident, val);
-                break;
-            case bool b:
-                result = YaraXNative.yrx_compiler_define_global_bool(_compiler, ident, b);
-                break;
-            case int i:
-                result = YaraXNative.yrx_compiler_define_global_int(_compiler, ident, i);
-                break;
-            case double d:
-                result = YaraXNative.yrx_compiler_define_global_float(_compiler, ident, d);
-                break;
-            default:
-                throw new NotSupportedException($"Unsupported global type: {typeof(T).Name}");
-        }
-
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"DefineGlobal failed: {result}");
+            throw new YaraXException($"SetNamespace failed: {result}");
         }
     }
 
     public CompileResult Build()
     {
-        YrxError[] errors = ReadDiagnosticsJson(isErrors: true);
-        YrxError[] warnings = ReadDiagnosticsJson(isErrors: false);
+        CompileError[] errors = ReadDiagnosticsJson(isErrors: true);
+        CompileError[] warnings = ReadDiagnosticsJson(isErrors: false);
 
         IntPtr rulesPtr = YaraXNative.yrx_compiler_build(_compiler);
+        _compiler = IntPtr.Zero;
 
         return new CompileResult(new Rules(rulesPtr), errors, warnings);
     }
@@ -162,7 +124,7 @@ public sealed class Compiler : IDisposable
         _compiler = IntPtr.Zero;
     }
 
-    private YrxError[] ReadDiagnosticsJson(bool isErrors)
+    private CompileError[] ReadDiagnosticsJson(bool isErrors)
     {
         YRX_RESULT callResult = isErrors
             ? YaraXNative.yrx_compiler_errors_json(_compiler, out IntPtr bufferPtr)
@@ -170,21 +132,21 @@ public sealed class Compiler : IDisposable
 
         if (callResult != YRX_RESULT.YRX_SUCCESS)
         {
-            return Array.Empty<YrxError>();
+            return Array.Empty<CompileError>();
         }
 
         YRX_BUFFER buffer = Marshal.PtrToStructure<YRX_BUFFER>(bufferPtr);
-        YrxError[] result = ParseDiagnosticsBuffer(buffer);
+        CompileError[] result = ParseDiagnosticsBuffer(buffer);
         YaraXNative.yrx_buffer_destroy(bufferPtr);
 
         return result;
     }
 
-    private static YrxError[] ParseDiagnosticsBuffer(YRX_BUFFER buffer)
+    private static CompileError[] ParseDiagnosticsBuffer(YRX_BUFFER buffer)
     {
         if (buffer.length.ToUInt64() <= 2)
         {
-            return Array.Empty<YrxError>();
+            return Array.Empty<CompileError>();
         }
 
         byte[] bytes = new byte[(int)buffer.length];
@@ -192,12 +154,12 @@ public sealed class Compiler : IDisposable
 
         try
         {
-            YrxError[]? parsed = JsonSerializer.Deserialize<YrxError[]>(Encoding.UTF8.GetString(bytes));
-            return parsed ?? Array.Empty<YrxError>();
+            CompileError[]? parsed = JsonSerializer.Deserialize<CompileError[]>(Encoding.UTF8.GetString(bytes));
+            return parsed ?? Array.Empty<CompileError>();
         }
         catch
         {
-            return Array.Empty<YrxError>();
+            return Array.Empty<CompileError>();
         }
     }
 }

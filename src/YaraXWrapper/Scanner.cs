@@ -29,7 +29,7 @@ public sealed class Scanner : IDisposable
         YRX_RESULT createResult = YaraXNative.yrx_scanner_create(rules._pointer, out _scanner);
         if (createResult != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"Failed to create scanner: {createResult}");
+            throw new YaraXException($"Failed to create scanner: {createResult}");
         }
 
         YRX_RESULT callbackResult = YaraXNative.yrx_scanner_on_matching_rule(_scanner, _onMatchDelegate, IntPtr.Zero);
@@ -37,7 +37,7 @@ public sealed class Scanner : IDisposable
         {
             YaraXNative.yrx_scanner_destroy(_scanner);
             _scanner = IntPtr.Zero;
-            throw new YrxException($"Failed to register match callback: {callbackResult}");
+            throw new YaraXException($"Failed to register match callback: {callbackResult}");
         }
     }
 
@@ -46,7 +46,7 @@ public sealed class Scanner : IDisposable
         YRX_RESULT result = YaraXNative.yrx_scanner_set_timeout(_scanner, seconds);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"SetTimeout failed: {result}");
+            throw new YaraXException($"SetTimeout failed: {result}");
         }
     }
 
@@ -54,7 +54,7 @@ public sealed class Scanner : IDisposable
     {
         if (!File.Exists(filePath))
         {
-            throw new YrxException($"File does not exist: {filePath}");
+            throw new YaraXException($"File does not exist: {filePath}");
         }
 
         _currentResults = new List<RuleMatch>();
@@ -62,7 +62,7 @@ public sealed class Scanner : IDisposable
         YRX_RESULT result = YaraXNative.yrx_scanner_scan_file(_scanner, path);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"Scan failed: {result}");
+            throw new YaraXException($"Scan failed: {result}");
         }
 
         return _currentResults;
@@ -71,132 +71,15 @@ public sealed class Scanner : IDisposable
     public IReadOnlyList<RuleMatch> Scan(byte[] data)
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
-        if (data.Length == 0) throw new YrxException("Data buffer is empty.");
 
         _currentResults = new List<RuleMatch>();
         YRX_RESULT result = YaraXNative.yrx_scanner_scan(_scanner, data, data.LongLength);
         if (result != YRX_RESULT.YRX_SUCCESS)
         {
-            throw new YrxException($"Scan failed: {result}");
+            throw new YaraXException($"Scan failed: {result}");
         }
 
         return _currentResults;
-    }
-
-    public IReadOnlyList<RuleMatch> ScanInBlocks(string filePath, int blockSize)
-    {
-        if (!File.Exists(filePath))
-        {
-            throw new YrxException($"File does not exist: {filePath}");
-        }
-
-        _currentResults = new List<RuleMatch>();
-
-        using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-        {
-            long offset = 0;
-            byte[] buffer = new byte[blockSize];
-
-            while (offset < stream.Length)
-            {
-                stream.Seek(offset, SeekOrigin.Begin);
-                int bytesRead = stream.Read(buffer, 0, blockSize);
-                if (bytesRead == 0)
-                {
-                    break;
-                }
-
-                // 'offset' is the byte offset of this block in the overall data — NOT a block index.
-                YRX_RESULT blockResult = YaraXNative.yrx_scanner_scan_block(_scanner, offset, buffer, bytesRead);
-                if (blockResult != YRX_RESULT.YRX_SUCCESS)
-                {
-                    throw new YrxException($"ScanBlock failed at offset 0x{offset:X}: {blockResult}");
-                }
-
-                offset += bytesRead;
-            }
-        }
-
-        YRX_RESULT finalResult = YaraXNative.yrx_scanner_finish(_scanner);
-        if (finalResult != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"ScanBlock finalization failed: {finalResult}");
-        }
-
-        return _currentResults;
-    }
-
-    public IReadOnlyList<SlowRuleInfo> GetSlowestRules(long maxResults)
-    {
-        var slowestRules = new List<SlowRuleInfo>();
-
-        YaraXNative.YRX_SLOWEST_RULES_CALLBACK callback =
-            (nsPtr, rulePtr, matchTime, evalTime, _) =>
-            {
-                var ns = Utf8Marshal.PtrToString(nsPtr);
-                var ruleName = Utf8Marshal.PtrToString(rulePtr);
-                slowestRules.Add(new SlowRuleInfo(ns, ruleName, matchTime, evalTime));
-            };
-
-        YRX_RESULT result = YaraXNative.yrx_scanner_iter_slowest_rules(_scanner, maxResults, callback, IntPtr.Zero);
-        GC.KeepAlive(callback);
-
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"GetSlowestRules failed: {result}");
-        }
-
-        return slowestRules;
-    }
-
-    public void SetGlobal(string identifier, string value)
-    {
-        using var ident = new Utf8NativeStr(identifier);
-        using var val = new Utf8NativeStr(value);
-        YRX_RESULT result = YaraXNative.yrx_scanner_set_global_str(_scanner, ident, val);
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"SetGlobal failed: {result}");
-        }
-    }
-
-    public void SetGlobal(string identifier, bool value)
-    {
-        using var ident = new Utf8NativeStr(identifier);
-        YRX_RESULT result = YaraXNative.yrx_scanner_set_global_bool(_scanner, ident, value);
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"SetGlobal failed: {result}");
-        }
-    }
-
-    public void SetGlobal(string identifier, int value)
-    {
-        using var ident = new Utf8NativeStr(identifier);
-        YRX_RESULT result = YaraXNative.yrx_scanner_set_global_int(_scanner, ident, value);
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"SetGlobal failed: {result}");
-        }
-    }
-
-    public void SetGlobal(string identifier, double value)
-    {
-        using var ident = new Utf8NativeStr(identifier);
-        YRX_RESULT result = YaraXNative.yrx_scanner_set_global_float(_scanner, ident, value);
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"SetGlobal failed: {result}");
-        }
-    }
-
-    public void ClearProfilingData()
-    {
-        YRX_RESULT result = YaraXNative.yrx_scanner_clear_profiling_data(_scanner);
-        if (result != YRX_RESULT.YRX_SUCCESS)
-        {
-            throw new YrxException($"ClearProfilingData failed: {result}");
-        }
     }
 
     public void Dispose()
@@ -261,7 +144,7 @@ public sealed class Scanner : IDisposable
             return string.Empty;
         }
 
-        return Utf8Marshal.PtrToString(ptr, length);
+        return PtrToUtf8String(ptr, length);
     }
 
     private static string ReadRuleNamespace(IntPtr rule)
@@ -273,12 +156,12 @@ public sealed class Scanner : IDisposable
             return string.Empty;
         }
 
-        return Utf8Marshal.PtrToString(ptr, length);
+        return PtrToUtf8String(ptr, length);
     }
 
     private static void ReadRuleTags(IntPtr rule, List<string> tags)
     {
-        YaraXNative.YRX_TAGS_CALLBACK callback = (tagPtr, _) => { tags.Add(Utf8Marshal.PtrToString(tagPtr)); };
+        YaraXNative.YRX_TAGS_CALLBACK callback = (tagPtr, _) => { tags.Add(PtrToUtf8String(tagPtr)); };
         YaraXNative.yrx_rule_iter_tags(rule, callback, IntPtr.Zero);
         GC.KeepAlive(callback);
     }
@@ -288,7 +171,7 @@ public sealed class Scanner : IDisposable
         YaraXNative.YRX_METADATA_CALLBACK callback = (metadataPtr, _) =>
         {
             YRX_METADATA data = Marshal.PtrToStructure<YRX_METADATA>(metadataPtr);
-            string key = Utf8Marshal.PtrToString(data.identifier);
+            string key = PtrToUtf8String(data.identifier);
 
             switch (data.value_type)
             {
@@ -302,7 +185,7 @@ public sealed class Scanner : IDisposable
                     metadata[key] = data.value.boolean;
                     break;
                 case YRX_METADATA_VALUE_TYPE.YRX_STRING:
-                    metadata[key] = Utf8Marshal.PtrToString(data.value.str);
+                    metadata[key] = PtrToUtf8String(data.value.str);
                     break;
                 case YRX_METADATA_VALUE_TYPE.YRX_BYTES:
                     YRX_METADATA_BYTES raw = data.value.bytes;
@@ -326,7 +209,7 @@ public sealed class Scanner : IDisposable
             int idLenInt = (int)(ulong)idLen;
 
             string patternId = (idResult == YRX_RESULT.YRX_SUCCESS && idLenInt > 0)
-                ? Utf8Marshal.PtrToString(idPtr, idLenInt)
+                ? PtrToUtf8String(idPtr, idLenInt)
                 : string.Empty;
 
             YaraXNative.YRX_MATCH_CALLBACK matchCallback = (matchPtr, _) =>
@@ -343,34 +226,25 @@ public sealed class Scanner : IDisposable
         GC.KeepAlive(patternCallback);
     }
 
-    private static class Utf8Marshal
+    private static string PtrToUtf8String(IntPtr ptr)
     {
-        internal static string PtrToString(IntPtr ptr)
-        {
-            if (ptr == IntPtr.Zero)
-            {
-                return string.Empty;
-            }
+        if (ptr == IntPtr.Zero)
+            return string.Empty;
 
-            int length = 0;
-            while (Marshal.ReadByte(ptr, length) != 0)
-            {
-                length++;
-            }
+        int length = 0;
+        while (Marshal.ReadByte(ptr, length) != 0)
+            length++;
 
-            return PtrToString(ptr, length);
-        }
+        return PtrToUtf8String(ptr, length);
+    }
 
-        internal static string PtrToString(IntPtr ptr, int length)
-        {
-            if (ptr == IntPtr.Zero || length <= 0)
-            {
-                return string.Empty;
-            }
+    private static string PtrToUtf8String(IntPtr ptr, int length)
+    {
+        if (ptr == IntPtr.Zero || length <= 0)
+            return string.Empty;
 
-            byte[] buffer = new byte[length];
-            Marshal.Copy(ptr, buffer, 0, length);
-            return Encoding.UTF8.GetString(buffer);
-        }
+        byte[] buffer = new byte[length];
+        Marshal.Copy(ptr, buffer, 0, length);
+        return Encoding.UTF8.GetString(buffer);
     }
 }

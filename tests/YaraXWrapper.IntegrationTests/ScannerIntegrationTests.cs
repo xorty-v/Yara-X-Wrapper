@@ -207,7 +207,7 @@ public sealed class ScannerIntegrationTests : IDisposable
         {
             compiler.AddRuleFile(yarPath);
         }
-        catch (YrxException ex)
+        catch (YaraXException ex)
         {
             Assert.Contains("bad.yar", ex.Message, StringComparison.OrdinalIgnoreCase);
             return;
@@ -245,7 +245,7 @@ public sealed class ScannerIntegrationTests : IDisposable
         {
             compiler.AddRuleFile(yarPath);
         }
-        catch (YrxException ex)
+        catch (YaraXException ex)
         {
             Assert.Contains("invalid.yar", ex.Message, StringComparison.OrdinalIgnoreCase);
             return;
@@ -255,7 +255,7 @@ public sealed class ScannerIntegrationTests : IDisposable
         CompileResult compiled = compiler.Build();
         Assert.NotEmpty(compiled.Errors);
 
-        YrxError error = compiled.Errors[0];
+        CompileError error = compiled.Errors[0];
         Assert.NotNull(error.Code);
         Assert.NotNull(error.Title);
 
